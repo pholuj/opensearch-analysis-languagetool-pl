@@ -1,0 +1,140 @@
+buildscript {
+    ext {
+        pluginName = 'analysis-languagetool-pl'
+        pluginClassname = 'pl.handslab.opensearch.plugin.analysis.languagetool.AnalysisLanguageToolPlugin'
+        pluginDescription = 'LanguageTool Polish Lemmatizer plugin for opensearch'
+        versions = [
+                'opensearch': '1.1.0',
+                'lucene'       : '8.8.2',
+                'log4j'        : '2.11.0',
+                'spock'        : '1.3-groovy-2.5',
+                'groovy'       : '2.5.13',
+                'languagetool' : '5.4'
+        ]
+    }
+}
+
+plugins {
+    id 'com.bmuschko.nexus' version '2.3.1'
+}
+
+apply plugin: 'java'
+
+group = 'pl.handslab.opensearch.plugin'
+version = versions.opensearch
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+configurations {
+    providedCompile
+    wagon
+    releaseJars {
+        extendsFrom implementation
+        exclude group: 'org.opensearch'
+        exclude group: 'com.fasterxml.jackson.core', module: 'jackson-core'
+        exclude module: 'lucene-core'
+        exclude module: 'lucene-backward-codecs'
+        exclude group: 'org.jetbrains'
+        exclude group: 'org.intellij'
+        exclude group: 'org.locationtech.spatial4j'
+        exclude group: 'com.carrotsearch', module: 'hppc'
+    }
+}
+
+dependencies {
+    implementation group: 'org.opensearch', name: 'opensearch', version: versions.opensearch
+    implementation 'org.languagetool:language-pl:5.4'
+    implementation group: 'org.apache.lucene', name: 'lucene-backward-codecs', version: versions.lucene
+    implementation group: 'org.apache.lucene', name: 'lucene-core', version: versions.lucene
+    implementation group: 'org.apache.lucene', name: 'lucene-codecs', version: versions.lucene
+}
+
+compileJava {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+tasks.withType(GroovyCompile) {
+    options.compilerArgs << "-proc:none"
+}
+
+test {
+    systemProperties['path.home'] = System.getProperty("user.dir")
+    systemProperties['opensearchVersion'] = versions.opensearch
+    testLogging {
+        showStandardStreams = false
+        exceptionFormat = 'full'
+    }
+}
+
+task makePluginDescriptor(type: Copy) {
+    from 'src/main/templates'
+    into "${project.buildDir}/tmp/plugin"
+    expand([
+            'descriptor': [
+                    'name'                : pluginName,
+                    'classname'           : pluginClassname,
+                    'description'         : pluginDescription,
+                    'version'             : project.property('version'),
+                    'javaVersion'         : project.property('targetCompatibility'),
+                    'opensearchVersion': versions.opensearch
+            ]
+    ])
+}
+
+task buildPluginZip(type: Zip, dependsOn: [':jar', ':makePluginDescriptor']) {
+    from "${project.buildDir}/${libsDirName}"
+    from configurations.releaseJars
+    from 'build/tmp/plugin'
+}
+
+task unpackPlugin(type: Copy, dependsOn: [':buildPluginZip']) {
+    delete "plugins"
+    from "${project.buildDir}/${libsDirName}"
+    from configurations.releaseJars
+    from 'build/tmp/plugin'
+    into "plugins/${pluginName}"
+}
+
+tasks.withType(Test) {
+    testLogging {
+        exceptionFormat = 'full'
+        events = ["failed", "skipped", "passed"]
+        showCauses = true
+        showStackTraces = true
+    }
+}
+
+artifacts {
+    archives buildPluginZip
+}
+
+wrapper {
+    gradleVersion = '6.7'
+    distributionType = Wrapper.DistributionType.ALL
+}
+
+
+modifyPom {
+    project {
+        name 'opensearch-analysis-languagetool-pl'
+        description 'LanguageTool Polish Lemmatizer plugin for opensearch'
+
+        licenses {
+            license {
+                name 'The Apache Software License, Version 2.0'
+                url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+            }
+        }
+
+        developers {
+            developer {
+                id 'pph'
+                name 'PPH'
+            }
+        }
+    }
+}
